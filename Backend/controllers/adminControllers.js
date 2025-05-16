@@ -1,11 +1,13 @@
 import { validationResult } from 'express-validator';
-import User from '../Models/userModel.js';
-import Task from '../Models/TaskModel.js'; 
+import mongoose from 'mongoose';
+import { parse } from 'csv-parse/sync';
 import xlsx from 'xlsx';
-import csv from 'csv-parse/sync';
 
+import User from '../Models/userModel.js';
+import Task from '../Models/TaskModel.js';
+
+// CREATE USER
 export const createUser = async (req, res) => {
-    // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         return res.status(422).json({ errors: errors.array() });
@@ -14,16 +16,13 @@ export const createUser = async (req, res) => {
     const { email, password, type = "agent", name, mobile } = req.body;
 
     try {
-        // Check if email already exists
         const existingUser = await User.findOne({ email });
         if (existingUser) {
             return res.status(409).json({ message: 'Email already exists' });
         }
 
-        // Hash the password
         const hashedPassword = await User.hashPassword(password);
 
-        // Create the user
         const newUser = new User({
             email,
             password: hashedPassword,
@@ -50,6 +49,7 @@ export const createUser = async (req, res) => {
     }
 };
 
+// GET ALL USERS
 export const getAllUsers = async (req, res) => {
     try {
         const users = await User.find({}).select('-password');
@@ -58,8 +58,9 @@ export const getAllUsers = async (req, res) => {
         console.error('Error fetching users:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
-}
+};
 
+// DELETE USER
 export const deleteUser = async (req, res) => {
     const { id } = req.params;
 
@@ -73,8 +74,9 @@ export const deleteUser = async (req, res) => {
         console.error('Error deleting user:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
-}
+};
 
+// UPDATE USER
 export const updateUser = async (req, res) => {
     const { id } = req.params;
     const { email, password, type = "agent", name, mobile } = req.body;
@@ -85,8 +87,19 @@ export const updateUser = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        if (email) user.email = email;
-        if (password) user.password = await User.hashPassword(password);
+        // Check for duplicate email if changed
+        if (email && email !== user.email) {
+            const existing = await User.findOne({ email });
+            if (existing && existing._id.toString() !== id) {
+                return res.status(409).json({ message: 'Email already in use by another user' });
+            }
+            user.email = email;
+        }
+
+        if (password && password.trim()) {
+            user.password = await User.hashPassword(password);
+        }
+
         if (type) user.type = type;
         if (name) user.name = name;
         if (mobile) user.mobile = mobile;
@@ -107,22 +120,21 @@ export const updateUser = async (req, res) => {
         console.error('Error updating user:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
-}
-
+};
 
 export const parseListFile = async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ message: 'No file uploaded' });
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({ message: 'No file uploaded or file is empty' });
         }
 
         const ext = req.file.originalname.split('.').pop().toLowerCase();
         let data = [];
 
-        // Parse file
+        // Parse CSV or XLSX
         if (ext === 'csv') {
             const content = req.file.buffer.toString();
-            const records = csv.parse(content, {
+            const records = parse(content, {
                 columns: true,
                 skip_empty_lines: true,
             });
@@ -136,39 +148,48 @@ export const parseListFile = async (req, res) => {
             return res.status(400).json({ message: 'Invalid file type' });
         }
 
-        // Validate structure
+        // Normalize Phone to Number
+        data = data.map(row => ({
+            FirstName: row.FirstName?.toString().trim(),
+            Phone: Number(row.Phone),
+            Notes: row.Notes?.toString().trim(),
+        }));
+
+        // Validate structure and types
         const isValid = data.every(row =>
-            row.FirstName && row.Phone && row.Notes
+            typeof row.FirstName === 'string' && row.FirstName !== '' &&
+            typeof row.Phone === 'number' && !isNaN(row.Phone) &&
+            typeof row.Notes === 'string' && row.Notes !== ''
         );
 
         if (!isValid) {
             return res.status(422).json({ message: 'Invalid file structure or data' });
         }
 
-        // Fetch all agents
+        // Get all agents
         const agents = await User.find({ type: 'agent' });
 
         if (agents.length === 0) {
             return res.status(400).json({ message: 'No agents available to assign tasks' });
         }
 
-        // Distribute tasks
+        // Distribute tasks round-robin
         const distributed = {};
-        agents.forEach(agent => {
-            distributed[agent._id] = [];
-        });
+        agents.forEach(agent => { distributed[agent._id] = []; });
 
         let agentIndex = 0;
         for (let i = 0; i < data.length; i++) {
             const agent = agents[agentIndex];
             distributed[agent._id].push({
-                ...data[i],
+                FirstName: data[i].FirstName,
+                Phone: data[i].Phone,
+                Notes: data[i].Notes,
                 assignedTo: agent._id,
             });
             agentIndex = (agentIndex + 1) % agents.length;
         }
 
-        // Optional: save to DB
+        // Insert all tasks
         await Task.insertMany(Object.values(distributed).flat());
 
         res.status(200).json({
@@ -187,13 +208,17 @@ export const parseListFile = async (req, res) => {
     }
 };
 
-
+// GET TASKS FOR AN AGENT
 export const getTasksByAgent = async (req, res) => {
     const { agentId } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+        return res.status(400).json({ message: 'Invalid agent ID' });
+    }
+
     try {
         const tasks = await Task.find({ assignedTo: agentId }).populate('assignedTo', 'name email');
-        if (!tasks) {
+        if (!tasks || tasks.length === 0) {
             return res.status(404).json({ message: 'No tasks found for this agent' });
         }
         res.status(200).json(tasks);
@@ -201,4 +226,4 @@ export const getTasksByAgent = async (req, res) => {
         console.error('Error fetching tasks:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
-}
+};
