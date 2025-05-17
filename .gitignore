@@ -4,3 +4,4 @@
 # Ignore Excel temporary files
 ~$*.xlsx
 
+**/.env

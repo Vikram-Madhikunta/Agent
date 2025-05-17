@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import axiosInstance from '../config/axios';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const Agent = () => {
   const { id } = useParams(); 
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+    }
+  }, [navigate]);
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -49,8 +57,6 @@ const Agent = () => {
                   <td className="p-3 border-b">{task.FirstName}</td>
                   <td className="p-3 border-b">{task.Phone}</td>
                   <td className="p-3 border-b">{task.Notes}</td>
-                  <td className="p-3 border-b">
-                  </td>
                 </tr>
               ))}
             </tbody>

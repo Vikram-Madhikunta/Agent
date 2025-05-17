@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axiosInstance from '../config/axios';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const allowedTypes = [
     'text/csv',
@@ -10,14 +10,20 @@ const allowedTypes = [
 
 const Home = () => {
     const [agents, setAgents] = useState([]);
-    const [formData, setFormData] = useState({ name: '', email: '', mobile: '',countryCode: '', password: '' });
+    const [formData, setFormData] = useState({ name: '', email: '', mobile: '', countryCode: '+91', password: '' });
     const [errors, setErrors] = useState({});
     const [file, setFile] = useState(null);
     const [fileError, setFileError] = useState('');
     const [refresh, setRefresh] = useState(false);
     const navigate = useNavigate();
 
-    // Fetch agents
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            navigate('/login');
+        }
+    }, [navigate]);
+
     useEffect(() => {
         const fetchAgents = async () => {
             try {
@@ -30,17 +36,15 @@ const Home = () => {
         fetchAgents();
     }, [refresh]);
 
-    // Validate agent form
     const validateForm = () => {
         const newErrors = {};
         if (!formData.name.trim()) newErrors.name = 'Name is required';
         if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Valid email required';
-        if (!/^\d{1,3}\d{7,}$/.test(formData.mobile)) newErrors.mobile = 'Mobile must include country code';
+        if (!/^\d{7,}$/.test(formData.mobile)) newErrors.mobile = 'Enter a valid mobile number';
         if (!formData.password || formData.password.length < 6) newErrors.password = 'Minimum 6 characters required';
         return newErrors;
     };
 
-    // Handle agent form submit
     const handleSubmit = async (e) => {
         e.preventDefault();
         const validationErrors = validateForm();
@@ -51,13 +55,12 @@ const Home = () => {
 
         try {
             const fullMobile = `${formData.countryCode}${formData.mobile}`;
-
             const payload = {
                 ...formData,
-                mobile: fullMobile,
+                mobile: fullMobile
             };
             await axiosInstance.post('/admin/create-User', payload);
-            setFormData({ name: '', email: '', mobile: '', password: '' });
+            setFormData({ name: '', email: '', mobile: '', countryCode: '+91', password: '' });
             setErrors({});
             alert('Agent created successfully');
             setRefresh(!refresh);
@@ -67,7 +70,6 @@ const Home = () => {
         }
     };
 
-    // Handle file selection
     const handleFileChange = (e) => {
         const selected = e.target.files[0];
         if (!selected) return;
@@ -80,7 +82,6 @@ const Home = () => {
         }
     };
 
-    // Handle list distribution
     const handleDistribute = async () => {
         if (!file) {
             alert('Upload a valid file first');
@@ -103,7 +104,6 @@ const Home = () => {
         }
     };
 
-    // Handle logout
     const handleLogout = async () => {
         try {
             await axiosInstance.get('/user/logout');
@@ -115,7 +115,6 @@ const Home = () => {
 
     return (
         <div className="relative max-w-5xl mx-auto p-8 space-y-10 bg-gray-100 min-h-screen">
-            {/* Logout Button */}
             <button
                 onClick={handleLogout}
                 className="absolute top-8 right-8 bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-md font-semibold shadow"
@@ -125,7 +124,7 @@ const Home = () => {
 
             <h1 className="text-3xl font-bold text-center text-gray-800">Admin Dashboard</h1>
 
-            {/* 1. Create Agent */}
+            {/* Create Agent */}
             <div className="bg-white p-6 rounded-lg shadow">
                 <h2 className="text-xl font-semibold mb-4 text-gray-700">1. Create Agent</h2>
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -153,7 +152,7 @@ const Home = () => {
                         <select
                             value={formData.countryCode}
                             onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
-                            className="w-[15%] px-2 py-2 border rounded-md text-sm"
+                            className="w-[20%] px-2 py-2 border rounded-md text-sm"
                         >
                             <option value="+91">+91 (IN)</option>
                             <option value="+1">+1 (US)</option>
@@ -161,17 +160,15 @@ const Home = () => {
                             <option value="+61">+61 (AU)</option>
                             <option value="+81">+81 (JP)</option>
                         </select>
-
                         <input
                             type="text"
                             placeholder="Mobile number"
                             value={formData.mobile}
                             onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                            className="w-[85%] px-4 py-2 border rounded-md"
+                            className="w-[80%] px-4 py-2 border rounded-md"
                         />
-                        </div>
-
-                        {errors.mobile && <p className="text-red-500 text-sm">{errors.mobile}</p>}
+                    </div>
+                    {errors.mobile && <p className="text-red-500 text-sm md:col-span-2">{errors.mobile}</p>}
 
                     <div>
                         <input
@@ -194,24 +191,19 @@ const Home = () => {
                 </form>
             </div>
 
-            {/* 2. Upload File */}
+            {/* Upload File */}
             <div className="bg-white p-6 rounded-lg shadow">
                 <h2 className="text-xl font-semibold mb-4 text-gray-700">2. Upload File</h2>
                 <input
                     type="file"
                     accept=".csv,.xlsx,.xls"
                     onChange={handleFileChange}
-                    className="block w-full text-sm text-gray-500
-                                        file:mr-4 file:py-2 file:px-4
-                                        file:rounded-full file:border-0
-                                        file:text-sm file:font-semibold
-                                        file:bg-blue-50 file:text-blue-700
-                                        hover:file:bg-blue-100"
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
                 {fileError && <p className="text-red-500 mt-2">{fileError}</p>}
             </div>
 
-            {/* 3. Distribute List */}
+            {/* Distribute List */}
             <div className="text-center">
                 <button
                     onClick={handleDistribute}
