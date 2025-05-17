@@ -52,7 +52,7 @@ export const createUser = async (req, res) => {
 // GET ALL USERS
 export const getAllUsers = async (req, res) => {
     try {
-        const users = await User.find({}).select('-password');
+        const users = await User.find({type : "agent"}).select('-password');
         res.status(200).json(users);
     } catch (error) {
         console.error('Error fetching users:', error);
@@ -210,14 +210,14 @@ export const parseListFile = async (req, res) => {
 
 // GET TASKS FOR AN AGENT
 export const getTasksByAgent = async (req, res) => {
-    const { agentId } = req.params;
+    const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(agentId)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).json({ message: 'Invalid agent ID' });
     }
 
     try {
-        const tasks = await Task.find({ assignedTo: agentId }).populate('assignedTo', 'name email');
+        const tasks = await Task.find({ assignedTo: id }).populate('assignedTo', 'name email');
         if (!tasks || tasks.length === 0) {
             return res.status(404).json({ message: 'No tasks found for this agent' });
         }

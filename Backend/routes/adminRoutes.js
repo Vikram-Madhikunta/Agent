@@ -17,7 +17,7 @@ router.post(
 );
 
 router.get(
-    "/get-Users", Middleware.authUser,isAdmin,
+    "/getUsers", Middleware.authUser,isAdmin,
     adminControllers.getAllUsers
 );
 
@@ -48,8 +48,7 @@ router.post(
 router.get(
     '/assigned-tasks/:id',
     Middleware.authUser,
-    isAdmin,
-    adminControllers.getAssignedTasks
+    adminControllers.getTasksByAgent
 )
 
 export default router;
