@@ -18,23 +18,24 @@ const Home = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/login');
-        }
-    }, [navigate]);
+    const token = localStorage.getItem('token');
+    if (!token) {
+        navigate('/login');
+        return; // Prevents fetching agents
+    }
 
-    useEffect(() => {
-        const fetchAgents = async () => {
-            try {
-                const res = await axiosInstance.get('/admin/getUsers');
-                setAgents(res.data || []);
-            } catch (err) {
-                console.error('Error fetching agents:', err);
-            }
-        };
-        fetchAgents();
-    }, [refresh]);
+    const fetchAgents = async () => {
+        try {
+            const res = await axiosInstance.get('/admin/getUsers');
+            setAgents(res.data || []);
+        } catch (err) {
+            console.error('Error fetching agents:', err);
+            setAgents([]); // fallback to empty
+        }
+    };
+    fetchAgents();
+}, [refresh, navigate]);
+
 
     const validateForm = () => {
         const newErrors = {};

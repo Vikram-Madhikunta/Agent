@@ -131,14 +131,12 @@ export const parseListFile = async (req, res) => {
         const ext = req.file.originalname.split('.').pop().toLowerCase();
         let data = [];
 
-        // Parse CSV or XLSX
         if (ext === 'csv') {
             const content = req.file.buffer.toString();
-            const records = parse(content, {
+            data = parse(content, {
                 columns: true,
                 skip_empty_lines: true,
             });
-            data = records;
         } else if (ext === 'xlsx' || ext === 'xls') {
             const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
             const sheetName = workbook.SheetNames[0];
@@ -148,62 +146,77 @@ export const parseListFile = async (req, res) => {
             return res.status(400).json({ message: 'Invalid file type' });
         }
 
-        // Normalize Phone to Number
-        data = data.map(row => ({
-            FirstName: row.FirstName?.toString().trim(),
-            Phone: Number(row.Phone),
-            Notes: row.Notes?.toString().trim(),
-        }));
+        data = data.map(row => {
+            const txnIdRaw = row['Transaction ID']?.toString().trim();
+            const txnNumber = txnIdRaw ? Number(txnIdRaw.replace(/\D/g, '')) : NaN;
 
-        // Validate structure and types
+            let parsedDate = new Date();
+            if (row.Date) {
+                const [day, month, year] = row.Date.toString().split('-');
+                parsedDate = new Date(`${year}-${month}-${day}`);
+            }
+
+            return {
+                firstName: row.Name?.toString().trim(),
+                transactionId: txnNumber,
+                amount: Number(row.Amount?.toString().replace(/[^0-9.]/g, '')),
+                date: parsedDate,
+            };
+        });
+
         const isValid = data.every(row =>
-            typeof row.FirstName === 'string' && row.FirstName !== '' &&
-            typeof row.Phone === 'number' && !isNaN(row.Phone) &&
-            typeof row.Notes === 'string' && row.Notes !== ''
+            typeof row.firstName === 'string' && row.firstName !== '' &&
+            typeof row.transactionId === 'number' && !isNaN(row.transactionId) &&
+            typeof row.amount === 'number' && !isNaN(row.amount)
         );
 
         if (!isValid) {
             return res.status(422).json({ message: 'Invalid file structure or data' });
         }
 
-        // Get all agents
         const agents = await User.find({ type: 'agent' });
 
         if (agents.length === 0) {
             return res.status(400).json({ message: 'No agents available to assign tasks' });
         }
 
-        // Distribute tasks round-robin
-        const distributed = {};
-        agents.forEach(agent => { distributed[agent._id] = []; });
+        const agentMap = {};
+        agents.forEach(agent => {
+            agentMap[agent.name.trim().toLowerCase()] = agent._id;
+        });
 
-        let agentIndex = 0;
-        for (let i = 0; i < data.length; i++) {
-            const agent = agents[agentIndex];
-            distributed[agent._id].push({
-                FirstName: data[i].FirstName,
-                Phone: data[i].Phone,
-                Notes: data[i].Notes,
-                assignedTo: agent._id,
+        const unmatchedNames = [];
+        const tasksToInsert = [];
+
+        for (let row of data) {
+            const agentId = agentMap[row.firstName.toLowerCase()];
+            if (!agentId) {
+                unmatchedNames.push(row.firstName);
+                continue;
+            }
+
+            tasksToInsert.push({
+                Name: row.firstName,
+                TransactionID: row.transactionId,
+                Amount: row.amount,
+                Date: row.date,
+                assignedTo: agentId,
             });
-            agentIndex = (agentIndex + 1) % agents.length;
         }
 
-        // Insert all tasks
-        await Task.insertMany(Object.values(distributed).flat());
+        if (tasksToInsert.length === 0) {
+            return res.status(400).json({ message: 'No valid agent matches found in file.' });
+        }
+
+        await Task.insertMany(tasksToInsert);
 
         res.status(200).json({
-            message: 'Data distributed successfully',
-            distributedTo: agents.length,
-            totalTasks: data.length,
-            preview: Object.entries(distributed).map(([agentId, tasks]) => ({
-                agentId,
-                tasks: tasks.slice(0, 3),
-            })),
+            message: 'Tasks uploaded and assigned to agents.',
+            totalInserted: tasksToInsert.length,
+            unmatchedNames: [...new Set(unmatchedNames)],
         });
 
     } catch (err) {
-        console.error('File processing error:', err);
         res.status(500).json({ message: 'Failed to process file', error: err.message });
     }
 };
